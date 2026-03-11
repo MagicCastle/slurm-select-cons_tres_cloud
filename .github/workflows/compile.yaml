@@ -7,9 +7,10 @@ jobs:
             - uses: actions/checkout@v6
               with:
                 sparse-checkout: |
-                    src            
+                    src
+            - run: git clone https://github.com/SchedMD/slurm.git
+            - run: sudo apt install munge-dev
             - run: |
-                git clone https://github.com/SchedMD/slurm.git
                 cd slurm
                 git checkout slurm-24-11-7-1
                 cp ../src/job_test.c src/plugins/select/cons_tres/
