@@ -8,11 +8,12 @@ jobs:
               with:
                 sparse-checkout: |
                     src            
-            - run: git clone https://github.com/SchedMD/slurm.git
-            - run: cd slurm
-            - run: git checkout slurm-24-11-7-1
-            - run: cp ../src/job_test.c src/plugins/select/cons_tres/
-            - run: ./configure
-            - run: cd slurm/src/plugins/select/cons_tres/
-            - run: make
-            - run: cp .libs/select_cons_tres.so ~/
+            - run: |
+                git clone https://github.com/SchedMD/slurm.git
+                cd slurm
+                git checkout slurm-24-11-7-1
+                cp ../src/job_test.c src/plugins/select/cons_tres/
+                ./configure
+                cd slurm/src/plugins/select/cons_tres/
+                make
+                cp .libs/select_cons_tres.so ~/
