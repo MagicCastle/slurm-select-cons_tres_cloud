@@ -9,7 +9,7 @@ jobs:
                 sparse-checkout: |
                     src
             - run: git clone https://github.com/SchedMD/slurm.git
-            - run: sudo apt install munge-dev
+            - run: sudo apt install libmunge-dev
             - run: |
                 cd slurm
                 git checkout slurm-24-11-7-1
