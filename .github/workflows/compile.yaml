@@ -18,9 +18,8 @@ jobs:
                 ./configure
                 cd src/plugins/select/cons_tres/
                 make
-                cp .libs/select_cons_tres.so ~/
             - name: Archive code coverage results
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                 name: slurm-${{ matrix.version }}
-                path: select_cons_tres.so
+                path: slurm/src/plugins/select/cons_tres/.libs/select_cons_tres.so
