@@ -14,7 +14,6 @@ jobs:
             - run: mv slurm*/ slurm/
             - run: |
                 cd slurm
-                git checkout slurm-24-11-7-1
                 cp ../src/job_test.c src/plugins/select/cons_tres/
                 ./configure
                 cd src/plugins/select/cons_tres/
