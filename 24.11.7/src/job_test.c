@@ -45,6 +45,41 @@
 #include "src/slurmctld/licenses.h"
 #include "src/common/slurm_time.h"
 
+static int _will_run_test(job_record_t *job_ptr, bitstr_t *node_bitmap,
+			  uint32_t min_nodes, uint32_t max_nodes,
+			  uint32_t req_nodes, uint16_t job_node_req,
+			  list_t *preemptee_candidates,
+			  list_t **preemptee_job_list,
+			  resv_exc_t *resv_exc_ptr,
+			  will_run_data_t *will_run_ptr);
+static int _run_mode_with_deferral(job_record_t *job_ptr,
+				   bitstr_t *node_bitmap,
+				   uint32_t min_nodes, uint32_t max_nodes,
+				   uint32_t req_nodes, uint16_t mode,
+				   enum node_cr_state job_node_req,
+				   list_t *preemptee_candidates,
+				   list_t **preemptee_job_list,
+				   resv_exc_t *resv_exc_ptr,
+				   will_run_data_t *will_run_ptr);
+static int _run_mode_with_bitmap(job_record_t *job_ptr,
+				 bitstr_t *node_bitmap,
+				 uint32_t min_nodes, uint32_t max_nodes,
+				 uint32_t req_nodes, uint16_t mode,
+				 enum node_cr_state job_node_req,
+				 list_t *preemptee_candidates,
+				 list_t **preemptee_job_list,
+				 resv_exc_t *resv_exc_ptr,
+				 will_run_data_t *will_run_ptr);
+static int _will_run_test_with_bitmap(job_record_t *job_ptr,
+				      bitstr_t *node_bitmap,
+				      uint32_t min_nodes, uint32_t max_nodes,
+				      uint32_t req_nodes, uint16_t job_node_req,
+				      list_t *preemptee_candidates,
+				      list_t **preemptee_job_list,
+				      resv_exc_t *resv_exc_ptr,
+				      will_run_data_t *will_run_ptr);
+static bitstr_t *_filter_powered_on_nodes(bitstr_t *node_bitmap);
+
 typedef struct {
 	int action;
 	list_t *license_list;
@@ -2738,71 +2773,6 @@ static int _will_run_test(job_record_t *job_ptr, bitstr_t *node_bitmap,
 					  resv_exc_ptr, will_run_ptr);
 }
 
-static int _run_mode_with_bitmap(job_record_t *job_ptr,
-				 bitstr_t *node_bitmap,
-				 uint32_t min_nodes, uint32_t max_nodes,
-				 uint32_t req_nodes, uint16_t mode,
-				 uint16_t job_node_req,
-				 list_t *preemptee_candidates,
-				 list_t **preemptee_job_list,
-				 resv_exc_t *resv_exc_ptr)
-{
-	switch (mode) {
-	case SELECT_MODE_TEST_ONLY:
-		return _test_only(job_ptr, node_bitmap, min_nodes,
-				  max_nodes, req_nodes, job_node_req);
-	case SELECT_MODE_RUN_NOW:
-		return _run_now(job_ptr, node_bitmap, min_nodes, max_nodes,
-				req_nodes, job_node_req,
-				preemptee_candidates,
-				preemptee_job_list, resv_exc_ptr);
-	default:
-		return EINVAL;
-	}
-}
-
-static int _run_mode_with_deferral(job_record_t *job_ptr,
-				   bitstr_t *node_bitmap,
-				   uint32_t min_nodes, uint32_t max_nodes,
-				   uint32_t req_nodes, uint16_t mode,
-				   uint16_t job_node_req,
-				   list_t *preemptee_candidates,
-				   list_t **preemptee_job_list,
-				   resv_exc_t *resv_exc_ptr,
-				   will_run_data_t *will_run_ptr)
-{
-	int rc;
-	bitstr_t *filtered;
-
-	if (mode == SELECT_MODE_WILL_RUN)
-		return _will_run_test(job_ptr, node_bitmap, min_nodes,
-				      max_nodes, req_nodes, job_node_req,
-				      preemptee_candidates,
-				      preemptee_job_list,
-				      resv_exc_ptr, will_run_ptr);
-
-	filtered = _filter_powered_on_nodes(node_bitmap);
-	if (filtered && bit_set_count(filtered) > 0) {
-		rc = _run_mode_with_bitmap(job_ptr, filtered, min_nodes,
-					   max_nodes, req_nodes, mode,
-					   job_node_req,
-					   preemptee_candidates,
-					   preemptee_job_list, resv_exc_ptr);
-		if (rc == SLURM_SUCCESS) {
-			bit_copybits(node_bitmap, filtered);
-			FREE_NULL_BITMAP(filtered);
-			return rc;
-		}
-	}
-
-	FREE_NULL_BITMAP(filtered);
-	return _run_mode_with_bitmap(job_ptr, node_bitmap, min_nodes,
-				     max_nodes, req_nodes, mode,
-				     job_node_req,
-				     preemptee_candidates,
-				     preemptee_job_list, resv_exc_ptr);
-}
-
 /* Allocate resources for a job now, if possible */
 static int _run_now(job_record_t *job_ptr, bitstr_t *node_bitmap,
 		    uint32_t min_nodes, uint32_t max_nodes,
@@ -3750,4 +3720,70 @@ extern int job_test(job_record_t *job_ptr, bitstr_t *node_bitmap,
 	}
 
 	return rc;
+}
+
+
+static int _run_mode_with_bitmap(job_record_t *job_ptr,
+				 bitstr_t *node_bitmap,
+				 uint32_t min_nodes, uint32_t max_nodes,
+				 uint32_t req_nodes, uint16_t mode,
+				 uint16_t job_node_req,
+				 list_t *preemptee_candidates,
+				 list_t **preemptee_job_list,
+				 resv_exc_t *resv_exc_ptr)
+{
+	switch (mode) {
+	case SELECT_MODE_TEST_ONLY:
+		return _test_only(job_ptr, node_bitmap, min_nodes,
+				  max_nodes, req_nodes, job_node_req);
+	case SELECT_MODE_RUN_NOW:
+		return _run_now(job_ptr, node_bitmap, min_nodes, max_nodes,
+				req_nodes, job_node_req,
+				preemptee_candidates,
+				preemptee_job_list, resv_exc_ptr);
+	default:
+		return EINVAL;
+	}
+}
+
+static int _run_mode_with_deferral(job_record_t *job_ptr,
+				   bitstr_t *node_bitmap,
+				   uint32_t min_nodes, uint32_t max_nodes,
+				   uint32_t req_nodes, uint16_t mode,
+				   uint16_t job_node_req,
+				   list_t *preemptee_candidates,
+				   list_t **preemptee_job_list,
+				   resv_exc_t *resv_exc_ptr,
+				   will_run_data_t *will_run_ptr)
+{
+	int rc;
+	bitstr_t *filtered;
+
+	if (mode == SELECT_MODE_WILL_RUN)
+		return _will_run_test(job_ptr, node_bitmap, min_nodes,
+				      max_nodes, req_nodes, job_node_req,
+				      preemptee_candidates,
+				      preemptee_job_list,
+				      resv_exc_ptr, will_run_ptr);
+
+	filtered = _filter_powered_on_nodes(node_bitmap);
+	if (filtered && bit_set_count(filtered) > 0) {
+		rc = _run_mode_with_bitmap(job_ptr, filtered, min_nodes,
+					   max_nodes, req_nodes, mode,
+					   job_node_req,
+					   preemptee_candidates,
+					   preemptee_job_list, resv_exc_ptr);
+		if (rc == SLURM_SUCCESS) {
+			bit_copybits(node_bitmap, filtered);
+			FREE_NULL_BITMAP(filtered);
+			return rc;
+		}
+	}
+
+	FREE_NULL_BITMAP(filtered);
+	return _run_mode_with_bitmap(job_ptr, node_bitmap, min_nodes,
+				     max_nodes, req_nodes, mode,
+				     job_node_req,
+				     preemptee_candidates,
+				     preemptee_job_list, resv_exc_ptr);
 }
