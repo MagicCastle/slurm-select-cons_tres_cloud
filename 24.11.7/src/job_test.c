@@ -45,25 +45,29 @@
 #include "src/slurmctld/licenses.h"
 #include "src/common/slurm_time.h"
 
-static int _will_run_test(job_record_t *job_ptr, bitstr_t *node_bitmap,
-			  uint32_t min_nodes, uint32_t max_nodes,
-			  uint32_t req_nodes, uint16_t job_node_req,
-			  list_t *preemptee_candidates,
-			  list_t **preemptee_job_list,
-			  resv_exc_t *resv_exc_ptr);
+static int _will_run_test_with_bitmap(job_record_t *job_ptr,
+				      bitstr_t *node_bitmap,
+				      uint32_t min_nodes, uint32_t max_nodes,
+				      uint32_t req_nodes,
+				      uint16_t job_node_req,
+				      list_t *preemptee_candidates,
+				      list_t **preemptee_job_list,
+				      resv_exc_t *resv_exc_ptr,
+				      will_run_data_t *will_run_ptr);
 static int _run_mode_with_deferral(job_record_t *job_ptr,
 				   bitstr_t *node_bitmap,
 				   uint32_t min_nodes, uint32_t max_nodes,
 				   uint32_t req_nodes, uint16_t mode,
-				   enum node_cr_state job_node_req,
+				   uint16_t job_node_req,
 				   list_t *preemptee_candidates,
 				   list_t **preemptee_job_list,
-				   resv_exc_t *resv_exc_ptr);
+				   resv_exc_t *resv_exc_ptr,
+				   will_run_data_t *will_run_ptr);
 static int _run_mode_with_bitmap(job_record_t *job_ptr,
 				 bitstr_t *node_bitmap,
 				 uint32_t min_nodes, uint32_t max_nodes,
 				 uint32_t req_nodes, uint16_t mode,
-				 enum node_cr_state job_node_req,
+				 uint16_t job_node_req,
 				 list_t *preemptee_candidates,
 				 list_t **preemptee_job_list,
 				 resv_exc_t *resv_exc_ptr);
