@@ -3,14 +3,17 @@ on: [push]
 jobs:
     Compile:
         runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                version: ["25.11.3", "25.05.6", "24.11.7"]
         steps:
             - run: sudo apt install libmunge-dev
             - uses: actions/checkout@v6
               with:
                 sparse-checkout: |
                     src
-            - run: curl -L -O https://download.schedmd.com/slurm/slurm-25.11.3.tar.bz2
-            - run: tar xf slurm-25.11.3.tar.bz2
+            - run: curl -L -O https://download.schedmd.com/slurm/slurm-${{ matrix.version }}.tar.bz2
+            - run: tar xf slurm-*.tar.bz2
             - run: mv slurm*/ slurm/
             - run: |
                 cd slurm
@@ -19,3 +22,8 @@ jobs:
                 cd src/plugins/select/cons_tres/
                 make
                 cp .libs/select_cons_tres.so ~/
+            - name: Archive code coverage results
+              uses: actions/upload-artifact@v4
+              with:
+                name: slurm-${{ matrix.version }}
+                path: select_cons_tres.so
