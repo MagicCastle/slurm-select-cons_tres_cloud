@@ -17,6 +17,6 @@ jobs:
                 git checkout slurm-24-11-7-1
                 cp ../src/job_test.c src/plugins/select/cons_tres/
                 ./configure
-                cd slurm/src/plugins/select/cons_tres/
+                cd src/plugins/select/cons_tres/
                 make
                 cp .libs/select_cons_tres.so ~/
