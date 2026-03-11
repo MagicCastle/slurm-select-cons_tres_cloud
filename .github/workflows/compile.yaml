@@ -4,12 +4,14 @@ jobs:
     Compile:
         runs-on: ubuntu-latest
         steps:
+            - run: sudo apt install libmunge-dev
             - uses: actions/checkout@v6
               with:
                 sparse-checkout: |
                     src
-            - run: git clone https://github.com/SchedMD/slurm.git
-            - run: sudo apt install libmunge-dev
+            - run: curl -L -O https://download.schedmd.com/slurm/slurm-24.11.7.tar.bz2
+            - run: tar xvf slurm-24.11.7.tar.bz2
+            - run: mv slurm*/ slurm/
             - run: |
                 cd slurm
                 git checkout slurm-24-11-7-1
