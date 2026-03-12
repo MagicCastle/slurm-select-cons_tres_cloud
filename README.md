@@ -1,11 +1,18 @@
 # Consumable Trackable Resource Plugin with a Cloud Twist
 
-When scheduling jobs, [cons_tres](https://slurm.schedmd.com/cons_tres.html)
-ranks nodes by sched_weight and then by “least‑loaded” (highest available/total CPU ratio).
-In an environment where oversubscription and power-saving are activated,
-powered‑down nodes are eligible, and because they appear fully idle, they win 
-the least‑loaded tie‑break over powered‑on nodes that would require overcommit.
-Oversubscription itself is not a scheduling weight penalty.
+Slurm's resource selection algorithm in the cons_tres plugin operates in a sequence of prioritized "steps."
+
+1. Step 1: Seek Idle Resources: Slurm first attempts to find nodes that have enough idle (unallocated) cores and memory to satisfy
+    the job's request.
+    * Powered-on nodes that are already running jobs may have few or no idle cores left.
+    * Powered-off nodes are treated as having all of their cores idle and available for allocation (once powered on).
+2. Steps 2-4: Seek Shared/Overcommitted Resources: Only if Step 1 fails (meaning there aren't enough idle cores anywhere in the
+    cluster, including powered-off nodes) will Slurm proceed to look for resources that are already in use but could be shared via
+    OverSubscribe (oversubscription).
+
+Because Step 1 succeeds by finding idle cores on powered-off nodes, Slurm stops there and selects those nodes. 
+It prefers the "cost" of powering on a node over the "cost" of CPU contention and reduced performance that 
+comes with overcommitting/sharing cores on a powered-on node.
 
 This results in Slurm powering nodes instead of overcommiting CPUs, which in a cloud
 environment is not always ideal. In our specific case, we want Slurm to overcommit
