@@ -1,32 +1,46 @@
 # Consumable Trackable Resource Plugin with a Cloud Twist
 
-Slurm's resource selection algorithm in the cons_tres plugin operates in a sequence of prioritized "steps."
+Slurm's `select/cons_tres` plugin can prefer idle CPUs on powered-down cloud
+nodes before it tries to share or overcommit CPUs on nodes that are already
+running. In a cloud environment, that can resume new instances even when current
+instances could still accept more shared work.
 
-1. Step 1: Seek Idle Resources: Slurm first attempts to find nodes that have enough idle (unallocated) cores and memory to satisfy
-    the job's request.
-    * Powered-on nodes that are already running jobs may have few or no idle cores left.
-    * Powered-off nodes are treated as having all of their cores idle and available for allocation (once powered on).
-2. Steps 2-4: Seek Shared/Overcommitted Resources: Only if Step 1 fails (meaning there aren't enough idle cores anywhere in the
-    cluster, including powered-off nodes) will Slurm proceed to look for resources that are already in use but could be shared via
-    OverSubscribe (oversubscription).
+This repository carries patch series for Slurm 25.05, 25.11, 26.05, and 26.11
+that make this behavior configurable.
 
-Because Step 1 succeeds by finding idle cores on powered-off nodes, Slurm stops there and selects those nodes. 
-It prefers the "cost" of powering on a node over the "cost" of CPU contention and reduced performance that 
-comes with overcommitting/sharing cores on a powered-on node.
+## Behavior
 
-This results in Slurm powering nodes instead of overcommiting CPUs, which in a cloud
-environment is not always ideal. In our specific case, we want Slurm to overcommit
-every powered-on nodes up to the oversubscription limit before powering on more nodes.
+The patches add a new `SelectTypeParameters` option:
 
-At the moment, Slurm provide a configuration mechanism to enable this behavior.
+```conf
+SelectType=select/cons_tres
+SelectTypeParameters=PreferPoweredUpNodes
+```
 
-## Our solution
+When `PreferPoweredUpNodes` is enabled, `select/cons_tres` tests candidate nodes
+in this order:
 
-With the help of gpt-5.2-codex and [superpowers](https://github.com/obra/superpowers),
-we tracked down the node selection logic to a single file `job_test.c` and proceeded
-to implement a two pass filter when selecting nodes. First pass is done with only
-powered on nodes, and if no nodes can satisfy the job requirements, a second pass is
-accomplished with every nodes.
+1. Nodes that are neither powered down, powering down, nor powering up.
+2. The same set plus nodes that are powering up.
+3. The original candidate bitmap, including powered-down and powering-down
+   nodes.
 
-The superpowers plan used to produced the modified `job_test.c` for the supported
-Slurm versions are available under [docs/plans](docs/plans).
+The first pass that can satisfy the job wins. If the option is not configured,
+Slurm keeps its upstream scheduling behavior.
+
+The implementation skips the multi-pass wrapper for the QoS preemption
+extra-row path because that path mutates simulated preemption state while
+testing selected preemptees.
+
+## Patch Layout
+
+Each supported Slurm version has a two-patch series under `patches/<version>`:
+
+1. `0001-Make-powered-on-preference-an-option.patch` adds the
+   `PreferPoweredUpNodes` config flag, config parsing, config string output, man
+   page text, and data parser exposure.
+2. `0002-Implement-scheduling-pref-for-powered-on-powering-up.patch` wraps
+   `select/cons_tres` job testing with the three-pass power-state preference.
+
+Design notes are available under [docs/plans](docs/plans). The current design is
+summarized in [docs/plans/current-design.md](docs/plans/current-design.md).

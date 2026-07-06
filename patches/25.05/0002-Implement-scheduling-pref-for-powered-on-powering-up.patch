@@ -1,0 +1,187 @@
+From 3288e90d4621f3bd246d9c66b1facf40e1660424 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?F=C3=A9lix-Antoine=20Fortin?=
+ <felix-antoine.fortin@calculquebec.ca>
+Date: Mon, 6 Jul 2026 11:58:31 -0400
+Subject: [PATCH 2/2] Implement scheduling pref for powered on -> powering up
+ -> all nodes
+
+---
+ src/plugins/select/cons_tres/job_test.c | 155 ++++++++++++++++++++++--
+ 1 file changed, 146 insertions(+), 9 deletions(-)
+
+diff --git a/src/plugins/select/cons_tres/job_test.c b/src/plugins/select/cons_tres/job_test.c
+index 74ff417208..7fe0cd8696 100644
+--- a/src/plugins/select/cons_tres/job_test.c
++++ b/src/plugins/select/cons_tres/job_test.c
+@@ -1230,15 +1230,41 @@ static int _verify_node_state(part_res_record_t *cr_part_ptr,
+  *         for this job, with the placement influenced by existing
+  *         allocations
+  */
+-static int _job_test(job_record_t *job_ptr, bitstr_t *node_bitmap,
+-		     uint32_t min_nodes, uint32_t max_nodes,
+-		     uint32_t req_nodes, int mode, uint16_t cr_type,
+-		     enum node_cr_state job_node_req,
+-		     part_res_record_t *cr_part_ptr,
+-		     node_use_record_t *node_usage, list_t *license_list,
+-		     resv_exc_t *resv_exc_ptr, bool prefer_alloc_nodes,
+-		     bool use_extra_row, bool preempt_mode,
+-		     list_t *qos_preemptees)
++static bitstr_t *_filter_node_bitmap_by_power(bitstr_t *node_bitmap,
++					      bool include_powering_up,
++					      bool include_powered_down)
++{
++	bitstr_t *filtered_bitmap = bit_copy(node_bitmap);
++	node_record_t *node_ptr;
++
++	for (int i = 0; (node_ptr = next_node_bitmap(filtered_bitmap, &i));
++	     i++) {
++		if (!include_powered_down &&
++		    (IS_NODE_POWERED_DOWN(node_ptr) ||
++		     IS_NODE_POWERING_DOWN(node_ptr))) {
++			bit_clear(filtered_bitmap, i);
++		} else if (!include_powering_up &&
++			   IS_NODE_POWERING_UP(node_ptr)) {
++			bit_clear(filtered_bitmap, i);
++		}
++	}
++
++	if (bit_equal(filtered_bitmap, node_bitmap) ||
++	    (bit_ffs(filtered_bitmap) == -1))
++		FREE_NULL_BITMAP(filtered_bitmap);
++
++	return filtered_bitmap;
++}
++
++static int _job_test_internal(job_record_t *job_ptr, bitstr_t *node_bitmap,
++			      uint32_t min_nodes, uint32_t max_nodes,
++			      uint32_t req_nodes, int mode, uint16_t cr_type,
++			      enum node_cr_state job_node_req,
++			      part_res_record_t *cr_part_ptr,
++			      node_use_record_t *node_usage,
++			      list_t *license_list, resv_exc_t *resv_exc_ptr,
++			      bool prefer_alloc_nodes, bool use_extra_row,
++			      bool preempt_mode, list_t *qos_preemptees)
+ {
+ 	int error_code = SLURM_SUCCESS, select_rc = SLURM_SUCCESS;
+ 	bitstr_t *orig_node_map, **part_core_map = NULL;
+@@ -2236,6 +2262,117 @@ alloc_job:
+ 	return error_code;
+ }
+ 
++static int _job_test(job_record_t *job_ptr, bitstr_t *node_bitmap,
++		     uint32_t min_nodes, uint32_t max_nodes,
++		     uint32_t req_nodes, int mode, uint16_t cr_type,
++		     enum node_cr_state job_node_req,
++		     part_res_record_t *cr_part_ptr,
++		     node_use_record_t *node_usage, list_t *license_list,
++		     resv_exc_t *resv_exc_ptr, bool prefer_alloc_nodes,
++		     bool use_extra_row, bool preempt_mode,
++		     list_t *qos_preemptees)
++{
++	bitstr_t *orig_node_bitmap = NULL, *filtered_bitmap = NULL;
++	uint32_t orig_min_cpus = job_ptr->details->min_cpus;
++	uint32_t orig_total_cpus = job_ptr->total_cpus;
++	uint16_t orig_start_protocol_ver = job_ptr->start_protocol_ver;
++	bool orig_best_switch = job_ptr->best_switch;
++	int rc;
++
++	/*
++	 * The QOS preemption extra-row path mutates simulated row state while
++	 * testing selected preemptees. Leave that path's retry behavior intact.
++	 */
++	if (qos_preemptees)
++		return _job_test_internal(job_ptr, node_bitmap, min_nodes,
++					  max_nodes, req_nodes, mode, cr_type,
++					  job_node_req, cr_part_ptr, node_usage,
++					  license_list, resv_exc_ptr,
++					  prefer_alloc_nodes, use_extra_row,
++					  preempt_mode, qos_preemptees);
++
++	if (!(slurm_conf.select_type_param & SELECT_PREFER_POWERED_UP_NODES))
++		return _job_test_internal(job_ptr, node_bitmap, min_nodes,
++					  max_nodes, req_nodes, mode, cr_type,
++					  job_node_req, cr_part_ptr, node_usage,
++					  license_list, resv_exc_ptr,
++					  prefer_alloc_nodes, use_extra_row,
++					  preempt_mode, qos_preemptees);
++
++	orig_node_bitmap = bit_copy(node_bitmap);
++
++	filtered_bitmap = _filter_node_bitmap_by_power(orig_node_bitmap, false,
++						       false);
++	if (filtered_bitmap) {
++		bit_copybits(node_bitmap, filtered_bitmap);
++		FREE_NULL_BITMAP(filtered_bitmap);
++
++		rc = _job_test_internal(job_ptr, node_bitmap, min_nodes,
++					max_nodes, req_nodes, mode, cr_type,
++					job_node_req, cr_part_ptr, node_usage,
++					license_list, resv_exc_ptr,
++					prefer_alloc_nodes, use_extra_row,
++					preempt_mode, qos_preemptees);
++		if (rc == SLURM_SUCCESS) {
++			FREE_NULL_BITMAP(orig_node_bitmap);
++			log_flag(SELECT_TYPE,
++				 "%pJ satisfied with powered-on nodes",
++				 job_ptr);
++			return rc;
++		}
++
++		log_flag(SELECT_TYPE,
++			 "%pJ cannot be satisfied with powered-on nodes, considering powering-up nodes",
++			 job_ptr);
++		free_job_resources(&job_ptr->job_resrcs);
++		job_ptr->details->min_cpus = orig_min_cpus;
++		job_ptr->total_cpus = orig_total_cpus;
++		job_ptr->start_protocol_ver = orig_start_protocol_ver;
++		job_ptr->best_switch = orig_best_switch;
++		bit_copybits(node_bitmap, orig_node_bitmap);
++	}
++
++	filtered_bitmap = _filter_node_bitmap_by_power(orig_node_bitmap, true,
++						       false);
++	if (filtered_bitmap) {
++		bit_copybits(node_bitmap, filtered_bitmap);
++		FREE_NULL_BITMAP(filtered_bitmap);
++
++		rc = _job_test_internal(job_ptr, node_bitmap, min_nodes,
++					max_nodes, req_nodes, mode, cr_type,
++					job_node_req, cr_part_ptr, node_usage,
++					license_list, resv_exc_ptr,
++					prefer_alloc_nodes, use_extra_row,
++					preempt_mode, qos_preemptees);
++		if (rc == SLURM_SUCCESS) {
++			FREE_NULL_BITMAP(orig_node_bitmap);
++			log_flag(SELECT_TYPE,
++				 "%pJ satisfied with powered-on and powering-up nodes",
++				 job_ptr);
++			return rc;
++		}
++
++		log_flag(SELECT_TYPE,
++			 "%pJ cannot be satisfied with powered-on and powering-up nodes, considering powered-down or powering-down nodes",
++			 job_ptr);
++		free_job_resources(&job_ptr->job_resrcs);
++		job_ptr->details->min_cpus = orig_min_cpus;
++		job_ptr->total_cpus = orig_total_cpus;
++		job_ptr->start_protocol_ver = orig_start_protocol_ver;
++		job_ptr->best_switch = orig_best_switch;
++		bit_copybits(node_bitmap, orig_node_bitmap);
++	}
++
++	rc = _job_test_internal(job_ptr, node_bitmap, min_nodes, max_nodes,
++				req_nodes, mode, cr_type, job_node_req,
++				cr_part_ptr, node_usage, license_list,
++				resv_exc_ptr, prefer_alloc_nodes,
++				use_extra_row, preempt_mode, qos_preemptees);
++	FREE_NULL_BITMAP(orig_node_bitmap);
++
++	return rc;
++}
++
+ static uint16_t _setup_cr_type(job_record_t *job_ptr)
+ {
+ 	uint16_t tmp_cr_type = slurm_conf.select_type_param;
+-- 
+2.54.0
+
