@@ -1,38 +1,36 @@
-# Cons_tres Will-Run Powered-Off Deferral Design
+# Superseded Will-Run Deferral Design
 
-## Goal
-When running in `SELECT_MODE_WILL_RUN`, only consider powered-off nodes if there are zero powered-on nodes that can satisfy the job (including with overcommit). "Powered-on" includes `POWERING_UP` but excludes `POWERING_DOWN`.
+This document records the first design direction. It has been superseded by the
+implemented patch series described in
+[current-design.md](current-design.md).
 
-## Non-Goals
-- No change to immediate scheduling behavior outside `SELECT_MODE_WILL_RUN`.
-- No change to node eligibility rules beyond filtering powered-off nodes in the first pass.
-- No change to topology plugins or node scheduler logic.
+## Original Direction
 
-## Architecture
-In the `SELECT_MODE_WILL_RUN` path, perform a two-pass eligibility evaluation using existing `cons_tres` will-run logic:
-1. Pass 1: run will-run using a node bitmap filtered to exclude `POWERED_DOWN` and `POWERING_DOWN` nodes (include `POWERING_UP`).
-2. If Pass 1 succeeds, return those results and do not consider powered-off nodes.
-3. If Pass 1 fails, run Pass 2 using the original node bitmap (current behavior).
+The initial design targeted only `SELECT_MODE_WILL_RUN` and proposed an
+always-on two-pass evaluation:
 
-## Components
-- `src/plugins/select/cons_tres/job_test.c`: update `_will_run_test()` to perform two-pass evaluation and add a helper to build the powered-on eligible bitmap.
-- `testsuite/slurm_unit/backfill/backfill_test.c`: add unit tests for the will-run powered-off deferral behavior.
+1. Try a bitmap that excluded powered-down and powering-down nodes.
+2. Fall back to the original node bitmap if the first pass failed.
 
-## Data Flow
-1. `_will_run_test()` receives `node_bitmap`.
-2. Create `node_bitmap_on` as a filtered copy excluding `POWERED_DOWN` and `POWERING_DOWN` nodes.
-3. Execute the existing will-run logic with `node_bitmap_on`.
-4. If success: return (powered-on only).
-5. If failure: execute the existing will-run logic with the original `node_bitmap`.
+In that version, powering-up nodes were grouped with powered-on nodes.
 
-## Error Handling
-- No new error cases.
-- Pass 1 failure falls back to Pass 2.
-- Original `node_bitmap` must remain unmodified.
+## Implemented Behavior
 
-## Testing
-- Test 1: powered-on node can satisfy job with overcommit, powered-down node also available. Expect will-run to choose powered-on solution (powered-down not selected).
-- Test 2: only powered-down nodes can satisfy job. Expect will-run success using powered-down nodes.
+The patches now implement an opt-in `SelectTypeParameters` flag named
+`PreferPoweredUpNodes`.
 
-## Open Questions
-None.
+When enabled, `select/cons_tres` evaluates `_job_test()` in up to three passes:
+
+1. Powered-up nodes only, excluding powered-down, powering-down, and powering-up
+   nodes.
+2. Powered-up plus powering-up nodes, excluding powered-down and powering-down
+   nodes.
+3. The original candidate bitmap.
+
+The behavior applies at the `_job_test()` wrapper level rather than only in
+`SELECT_MODE_WILL_RUN`. The original scheduling logic is kept in
+`_job_test_internal()` and the wrapper restores mutable job state between failed
+filtered passes.
+
+The wrapper is skipped for the QoS preemption extra-row path because that path
+mutates simulated preemption state during scheduling tests.

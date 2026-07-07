@@ -1,0 +1,135 @@
+From 0161c6ecbe1895dc55fc5452fd53b023c7c8402a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?F=C3=A9lix-Antoine=20Fortin?=
+ <felix-antoine.fortin@calculquebec.ca>
+Date: Mon, 6 Jul 2026 12:50:53 -0400
+Subject: [PATCH 1/2] Make powered-on preference an option
+
+---
+ doc/man/man5/slurm.conf.5                 | 9 +++++++++
+ slurm/slurm.h                             | 6 +++++-
+ src/common/read_config.c                  | 3 +++
+ src/interfaces/select.c                   | 5 +++++
+ src/plugins/data_parser/v0.0.43/parsers.c | 1 +
+ src/plugins/data_parser/v0.0.44/parsers.c | 1 +
+ src/plugins/data_parser/v0.0.45/parsers.c | 1 +
+ src/plugins/data_parser/v0.0.46/parsers.c | 1 +
+ 8 files changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/doc/man/man5/slurm.conf.5 b/doc/man/man5/slurm.conf.5
+index 2a759c03f9..18daa4688a 100644
+--- a/doc/man/man5/slurm.conf.5
++++ b/doc/man/man5/slurm.conf.5
+@@ -5130,6 +5130,15 @@ This default behavior can be overridden specifying a particular
+ Without this option, cores will be allocated cyclically across the sockets.
+ .IP
+ 
++.TP
++\fBPreferPoweredUpNodes\fR
++With \fBSelectType=select/cons_tres\fR, prefer already powered-up nodes
++before considering nodes that need to be resumed. When enabled, job selection
++first tests nodes that are not powered down or powering up, then includes nodes
++that are powering up, and only falls back to powered-down or powering-down nodes
++if the job cannot otherwise be satisfied.
++.IP
++
+ .TP
+ \fBCR_LLN\fR
+ Schedule resources to jobs on the least loaded nodes (based upon the number
+diff --git a/slurm/slurm.h b/slurm/slurm.h
+index e438bd11db..2e455b34e6 100644
+--- a/slurm/slurm.h
++++ b/slurm/slurm.h
+@@ -1118,7 +1118,11 @@ typedef enum {
+ 	 * nodes
+ 	 */
+ 	SELECT_CORE_DEFAULT_DIST_BLOCK = SLURM_BIT(12),
+-	/* SLURM_BIT(13), empty */
++	/*
++	 * Prefer already powered-up nodes before considering nodes that need to
++	 * be resumed.
++	 */
++	SELECT_PREFER_POWERED_UP_NODES = SLURM_BIT(13),
+ 	/* Select nodes by "least loaded." */
+ 	SELECT_LLN = SLURM_BIT(14),
+ 	/* Allow multiple sharing gres per job */
+diff --git a/src/common/read_config.c b/src/common/read_config.c
+index d0bb7b2d51..5d8c5143b1 100644
+--- a/src/common/read_config.c
++++ b/src/common/read_config.c
+@@ -3716,6 +3716,9 @@ static int _parse_select_type_param(
+ 		} else if (!xstrcasecmp(str_parameters,
+ 					"CR_CORE_DEFAULT_DIST_BLOCK")) {
+ 			*param |= SELECT_CORE_DEFAULT_DIST_BLOCK;
++		} else if (!xstrcasecmp(str_parameters,
++					"PreferPoweredUpNodes")) {
++			*param |= SELECT_PREFER_POWERED_UP_NODES;
+ 		} else if (!xstrcasecmp(str_parameters, "CR_LLN")) {
+ 			*param |= SELECT_LLN;
+ 		} else if (!xstrcasecmp(str_parameters, "CR_PACK_NODES")) {
+diff --git a/src/interfaces/select.c b/src/interfaces/select.c
+index 0f50427c40..fd27e6880a 100644
+--- a/src/interfaces/select.c
++++ b/src/interfaces/select.c
+@@ -206,6 +206,11 @@ extern char *select_type_param_string(uint16_t select_type_param)
+ 			strcat(select_str, ",");
+ 		strcat(select_str, "CR_CORE_DEFAULT_DIST_BLOCK");
+ 	}
++	if (select_type_param & SELECT_PREFER_POWERED_UP_NODES) {
++		if (select_str[0])
++			strcat(select_str, ",");
++		strcat(select_str, "PreferPoweredUpNodes");
++	}
+ 	if (select_type_param & SELECT_LLN) {
+ 		if (select_str[0])
+ 			strcat(select_str, ",");
+diff --git a/src/plugins/data_parser/v0.0.43/parsers.c b/src/plugins/data_parser/v0.0.43/parsers.c
+index 7111140f12..e1f33f191c 100644
+--- a/src/plugins/data_parser/v0.0.43/parsers.c
++++ b/src/plugins/data_parser/v0.0.43/parsers.c
+@@ -9883,6 +9883,7 @@ static const flag_bit_t PARSER_FLAG_ARRAY(CR_TYPE)[] = {
+ 	add_flag_bit(SELECT_ONE_TASK_PER_CORE, "ONE_TASK_PER_CORE"),
+ 	add_flag_bit(SELECT_PACK_NODES, "PACK_NODES"),
+ 	add_flag_bit(SELECT_CORE_DEFAULT_DIST_BLOCK, "CORE_DEFAULT_DIST_BLOCK"),
++	add_flag_bit(SELECT_PREFER_POWERED_UP_NODES, "PreferPoweredUpNodes"),
+ 	add_flag_bit(SELECT_LLN, "LLN"),
+ 	add_flag_bit(SELECT_LINEAR, "LINEAR"),
+ };
+diff --git a/src/plugins/data_parser/v0.0.44/parsers.c b/src/plugins/data_parser/v0.0.44/parsers.c
+index 8b5041e5eb..2f1c536725 100644
+--- a/src/plugins/data_parser/v0.0.44/parsers.c
++++ b/src/plugins/data_parser/v0.0.44/parsers.c
+@@ -10237,6 +10237,7 @@ static const flag_bit_t PARSER_FLAG_ARRAY(CR_TYPE)[] = {
+ 	add_flag_bit(SELECT_ONE_TASK_PER_CORE, "ONE_TASK_PER_CORE"),
+ 	add_flag_bit(SELECT_PACK_NODES, "PACK_NODES"),
+ 	add_flag_bit(SELECT_CORE_DEFAULT_DIST_BLOCK, "CORE_DEFAULT_DIST_BLOCK"),
++	add_flag_bit(SELECT_PREFER_POWERED_UP_NODES, "PreferPoweredUpNodes"),
+ 	add_flag_bit(SELECT_LLN, "LLN"),
+ 	add_flag_bit(SELECT_LINEAR, "LINEAR"),
+ };
+diff --git a/src/plugins/data_parser/v0.0.45/parsers.c b/src/plugins/data_parser/v0.0.45/parsers.c
+index 02dfa0121b..bec94ce697 100644
+--- a/src/plugins/data_parser/v0.0.45/parsers.c
++++ b/src/plugins/data_parser/v0.0.45/parsers.c
+@@ -11564,6 +11564,7 @@ static const flag_bit_t PARSER_FLAG_ARRAY(SELECT_TYPE_PARAM)[] = {
+ 	add_flag_masked_bit_desc(SELECT_CORE_DEFAULT_DIST_BLOCK, SELECT_TYPE_NON_EXCL_MASK, "CR_CORE_DEFAULT_DIST_BLOCK", "Allocate cores within a node using block distribution by default."),
+ 	add_flag_hidden_masked_bit(SELECT_CORE_DEFAULT_DIST_BLOCK, SELECT_TYPE_NON_EXCL_MASK, "CORE_DEFAULT_DIST_BLOCK"),
+ 	add_flag_masked_bit_desc(SELECT_NO_DIST_TOPO_BLOCK, SELECT_TYPE_NON_EXCL_MASK, "CR_NO_DIST_TOPO_BLOCK", "Disable topology node rank sort"),
++	add_flag_masked_bit_desc(SELECT_PREFER_POWERED_UP_NODES, SELECT_TYPE_NON_EXCL_MASK, "PreferPoweredUpNodes", "Prefer already powered-up nodes before considering nodes that need to be resumed."),
+ 	add_flag_masked_bit_desc(SELECT_LLN, SELECT_TYPE_NON_EXCL_MASK, "CR_LLN", "Schedule resources to jobs on the least loaded nodes (based upon the number of idle CPUs)."),
+ 	add_flag_hidden_masked_bit(SELECT_LLN, SELECT_TYPE_NON_EXCL_MASK, "LLN"),
+ 	add_flag_masked_bit_desc(SELECT_PACK_NODES, SELECT_TYPE_NON_EXCL_MASK, "CR_PACK_NODES", "Pack a job's tasks as tightly as possible on its allocated nodes."),
+diff --git a/src/plugins/data_parser/v0.0.46/parsers.c b/src/plugins/data_parser/v0.0.46/parsers.c
+index 112879540a..a3cf1cbc4d 100644
+--- a/src/plugins/data_parser/v0.0.46/parsers.c
++++ b/src/plugins/data_parser/v0.0.46/parsers.c
+@@ -11540,6 +11540,7 @@ static const flag_bit_t PARSER_FLAG_ARRAY(SELECT_TYPE_PARAM)[] = {
+ 	add_flag_masked_bit_desc(SELECT_CORE_DEFAULT_DIST_BLOCK, SELECT_TYPE_NON_EXCL_MASK, "CR_CORE_DEFAULT_DIST_BLOCK", "Allocate cores within a node using block distribution by default."),
+ 	add_flag_hidden_masked_bit(SELECT_CORE_DEFAULT_DIST_BLOCK, SELECT_TYPE_NON_EXCL_MASK, "CORE_DEFAULT_DIST_BLOCK"),
+ 	add_flag_masked_bit_desc(SELECT_NO_DIST_TOPO_BLOCK, SELECT_TYPE_NON_EXCL_MASK, "CR_NO_DIST_TOPO_BLOCK", "Disable topology node rank sort"),
++	add_flag_masked_bit_desc(SELECT_PREFER_POWERED_UP_NODES, SELECT_TYPE_NON_EXCL_MASK, "PreferPoweredUpNodes", "Prefer already powered-up nodes before considering nodes that need to be resumed."),
+ 	add_flag_masked_bit_desc(SELECT_LLN, SELECT_TYPE_NON_EXCL_MASK, "CR_LLN", "Schedule resources to jobs on the least loaded nodes (based upon the number of idle CPUs)."),
+ 	add_flag_hidden_masked_bit(SELECT_LLN, SELECT_TYPE_NON_EXCL_MASK, "LLN"),
+ 	add_flag_masked_bit_desc(SELECT_PACK_NODES, SELECT_TYPE_NON_EXCL_MASK, "CR_PACK_NODES", "Pack a job's tasks as tightly as possible on its allocated nodes."),
+-- 
+2.54.0
+

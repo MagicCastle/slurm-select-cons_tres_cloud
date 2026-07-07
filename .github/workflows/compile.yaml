@@ -5,19 +5,22 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
-                version: ["25.11.3", "24.11.7"]
+                version: ["25.05", "25.11", "26.05"]
         steps:
             - run: sudo apt install libmunge-dev
             - uses: actions/checkout@v6
-            - run: curl -L -O https://download.schedmd.com/slurm/slurm-${{ matrix.version }}.tar.bz2
+            - id: release-url
+              run: |
+                URL=$(curl https://api.github.com/repos/schedmd/slurm/releases | jq -r '.[] | select(.name | contains("${{ matrix.version }}")) | .assets[0].browser_download_url ' | head -n1)
+                echo "value=${URL}" >> $GITHUB_OUTPUT
+            - run: curl -L -O ${{ steps.release-url.outputs.value }}
             - run: tar xf slurm-*.tar.bz2
             - run: mv slurm*/ slurm/
             - run: |
-                cp ${{ matrix.version }}/src/job_test.c slurm/src/plugins/select/cons_tres/
                 cd slurm
+                cat ../patches/${{ matrix.version }}/*.patch | patch -p1
                 ./configure
-                cd src/plugins/select/cons_tres/
-                make
+                make -j4
             - name: Archive code coverage results
               uses: actions/upload-artifact@v6
               with:
