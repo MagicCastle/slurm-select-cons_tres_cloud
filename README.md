@@ -1,9 +1,9 @@
 # Consumable Trackable Resource Plugin with a Cloud Twist
 
 Slurm's `select/cons_tres` plugin can prefer idle CPUs on powered-down cloud
-nodes before it tries to share or overcommit CPUs on nodes that are already
+nodes before it tries oversubscribe CPUs on nodes that are already
 running. In a cloud environment, that can resume new instances even when current
-instances could still accept more shared work.
+instances could still accept more shared jobs.
 
 This repository carries patch series for Slurm 25.05, 25.11, 26.05, and 26.11
 that make this behavior configurable.
