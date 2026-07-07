@@ -44,3 +44,9 @@ Each supported Slurm version has a two-patch series under `patches/<version>`:
 
 Design notes are available under [docs/plans](docs/plans). The current design is
 summarized in [docs/plans/current-design.md](docs/plans/current-design.md).
+
+## AI Disclosure
+
+This project werwase developed with AI assistance.
+- **Tools used**: OpenAI Codex with GPT-5.5, [superpowers skills](https://github.com/obra/superpowers)
+- **Scope**: documentation, planning and C code generation.
